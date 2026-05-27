@@ -11,33 +11,25 @@
 
 <div class="container">
   <h1>Streamlink Downloader</h1>
-  <p class="sub">Usa o comando: <b>streamlink --output arquivo.ts "URL" best</b></p>
+
+  <div class="cmd">
+    comando usado:<br>
+    <b>streamlink --output "nome do video.ts" "url" best</b>
+  </div>
 
   <label>URL</label>
   <input id="url" type="text" placeholder="Cole a URL aqui">
 
-  <div class="grid">
-    <div>
-      <label>Formato</label>
-      <select id="format">
-        <option value="ts">TS</option>
-        <option value="mp4">MP4 H.264 AVC1</option>
-      </select>
-    </div>
+  <label>Qualidade</label>
+  <select id="quality">
+    <option value="best">best</option>
+    <option value="1080p">1080p</option>
+    <option value="720p">720p</option>
+    <option value="480p">480p</option>
+    <option value="360p">360p</option>
+  </select>
 
-    <div>
-      <label>Qualidade</label>
-      <select id="quality">
-        <option value="best">best</option>
-        <option value="1080p">1080p</option>
-        <option value="720p">720p</option>
-        <option value="480p">480p</option>
-        <option value="360p">360p</option>
-      </select>
-    </div>
-  </div>
-
-  <button id="btn" onclick="startDownload()">Baixar</button>
+  <button id="btn" onclick="startDownload()">Baixar TS</button>
 
   <div id="status" class="status hidden"></div>
 
@@ -50,17 +42,11 @@
 let currentJob = null;
 let timer = null;
 
-function show(el) {
-  el.classList.remove("hidden");
-}
+function show(el){ el.classList.remove("hidden"); }
+function hide(el){ el.classList.add("hidden"); }
 
-function hide(el) {
-  el.classList.add("hidden");
-}
-
-async function startDownload() {
+async function startDownload(){
   const url = document.getElementById("url").value.trim();
-  const format = document.getElementById("format").value;
   const quality = document.getElementById("quality").value;
 
   const btn = document.getElementById("btn");
@@ -75,90 +61,80 @@ async function startDownload() {
   status.innerText = "Iniciando...";
   log.innerText = "";
 
-  if (!url) {
+  if(!url){
     status.className = "status error";
-    status.innerText = "Cole uma URL primeiro.";
+    status.innerText = "Cole uma URL.";
     return;
   }
 
   btn.disabled = true;
-  btn.innerText = "Processando...";
+  btn.innerText = "Baixando...";
 
-  try {
+  try{
     const r = await fetch("/start", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({url, format, quality})
+      body: JSON.stringify({url, quality})
     });
 
     const data = await r.json();
-
-    if (!data.ok) {
-      throw new Error(data.error || "Falha ao iniciar.");
-    }
+    if(!data.ok) throw new Error(data.error || "Erro ao iniciar.");
 
     currentJob = data.job_id;
-    status.innerText = "Baixando no servidor... aguarde.";
     timer = setInterval(checkStatus, 2000);
     checkStatus();
-
-  } catch (e) {
+  }catch(e){
     status.className = "status error";
     status.innerText = e.message;
     btn.disabled = false;
-    btn.innerText = "Baixar";
+    btn.innerText = "Baixar TS";
   }
 }
 
-async function checkStatus() {
-  if (!currentJob) return;
-
+async function checkStatus(){
   const btn = document.getElementById("btn");
   const status = document.getElementById("status");
   const log = document.getElementById("log");
   const link = document.getElementById("downloadLink");
 
-  try {
+  try{
     const r = await fetch("/status/" + currentJob);
     const data = await r.json();
 
-    if (!data.ok) {
-      throw new Error(data.error || "Falha ao consultar status.");
-    }
+    if(!data.ok) throw new Error(data.error || "Erro status.");
 
     log.innerText = (data.logs || []).join("\n");
     log.scrollTop = log.scrollHeight;
 
-    if (data.status === "running" || data.status === "queued") {
+    if(data.status === "queued" || data.status === "running"){
       status.className = "status";
-      status.innerText = "Baixando no servidor... não feche esta página.";
+      status.innerText = "Baixando no servidor...";
     }
 
-    if (data.status === "done") {
+    if(data.status === "done"){
       clearInterval(timer);
       status.className = "status ok";
       status.innerText = "Arquivo pronto.";
       link.href = data.download_url;
-      link.innerText = "Baixar " + (data.filename || "arquivo");
+      link.innerText = "Baixar " + data.filename;
       show(link);
       btn.disabled = false;
-      btn.innerText = "Baixar outro";
+      btn.innerText = "Baixar TS";
     }
 
-    if (data.status === "error") {
+    if(data.status === "error"){
       clearInterval(timer);
       status.className = "status error";
       status.innerText = data.error || "Erro.";
       btn.disabled = false;
-      btn.innerText = "Baixar";
+      btn.innerText = "Baixar TS";
     }
-
-  } catch (e) {
+  }catch(e){
     clearInterval(timer);
     status.className = "status error";
     status.innerText = e.message;
     btn.disabled = false;
-    btn.innerText = "Baixar";
+    btn.innerText = "Baixar TS";
   }
 }
 </script>

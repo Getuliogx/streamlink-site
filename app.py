@@ -2,19 +2,17 @@
 import os
 import uuid
 import time
+import shlex
 import threading
 import subprocess
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, abort
-import imageio_ffmpeg
 
 app = Flask(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
-
-FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
 jobs = {}
 
@@ -28,119 +26,58 @@ def add_log(job_id, text):
     jobs.setdefault(job_id, {})
     logs = jobs[job_id].setdefault("logs", [])
     logs.append(str(text)[-4000:])
-    jobs[job_id]["logs"] = logs[-80:]
+    jobs[job_id]["logs"] = logs[-120:]
 
-def run_streamlink(job_id, url, quality, ts_file):
-    # Comando exatamente no formato que você disse que funciona:
-    # streamlink --output "arquivo.ts" "url" best
-    cmd = [
-        "streamlink",
-        "--output",
-        str(ts_file),
-        url,
-        quality
-    ]
+def rodar_comando_exato(job_id, url, qualidade, saida):
+    # Monta o comando EXATAMENTE igual ao CMD:
+    # streamlink --output "nome do video.ts" "url" best
+    comando = f'streamlink --output "{saida}" "{url}" {qualidade}'
 
-    add_log(job_id, "Rodando comando:")
-    add_log(job_id, " ".join(f'"{c}"' if " " in c else c for c in cmd))
+    add_log(job_id, "Comando executado exatamente:")
+    add_log(job_id, comando)
 
-    process = subprocess.Popen(
-        cmd,
+    p = subprocess.Popen(
+        comando,
+        shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1
     )
 
-    for line in process.stdout:
-        add_log(job_id, line.rstrip())
+    for linha in p.stdout:
+        add_log(job_id, linha.rstrip())
 
-    process.wait()
+    p.wait()
 
-    add_log(job_id, f"Streamlink finalizou com código: {process.returncode}")
+    add_log(job_id, f"Código final: {p.returncode}")
 
-    if process.returncode != 0:
-        raise RuntimeError("Streamlink falhou. Veja o log acima.")
+    if p.returncode != 0:
+        raise RuntimeError("Streamlink falhou. Veja o log.")
 
-    if not ts_file.exists():
-        raise RuntimeError("O Streamlink terminou, mas o arquivo .ts não foi criado.")
+    if not saida.exists():
+        raise RuntimeError("O arquivo .ts não foi criado.")
 
-    if ts_file.stat().st_size < 1024:
-        raise RuntimeError("O arquivo .ts foi criado vazio ou pequeno demais.")
+    if saida.stat().st_size < 1024:
+        raise RuntimeError("O arquivo .ts ficou vazio ou pequeno demais.")
 
-def convert_to_mp4(job_id, ts_file, mp4_file):
-    cmd = [
-        FFMPEG,
-        "-y",
-        "-i",
-        str(ts_file),
-        "-c:v",
-        "libx264",
-        "-tag:v",
-        "avc1",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-movflags",
-        "+faststart",
-        str(mp4_file)
-    ]
-
-    add_log(job_id, "Convertendo para MP4 H.264 AVC1:")
-    add_log(job_id, " ".join(f'"{c}"' if " " in c else c for c in cmd))
-
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1
-    )
-
-    for line in process.stdout:
-        add_log(job_id, line.rstrip())
-
-    process.wait()
-
-    add_log(job_id, f"FFmpeg finalizou com código: {process.returncode}")
-
-    if process.returncode != 0:
-        raise RuntimeError("FFmpeg falhou. Veja o log acima.")
-
-    if not mp4_file.exists():
-        raise RuntimeError("O MP4 não foi criado.")
-
-    if mp4_file.stat().st_size < 1024:
-        raise RuntimeError("O MP4 foi criado vazio ou pequeno demais.")
-
-def worker(job_id, url, quality, fmt):
+def worker(job_id, url, qualidade):
     try:
-        set_job(job_id, status="running", error=None, file=None, filename=None)
-        add_log(job_id, "Iniciando...")
+        set_job(job_id, status="running", error=None)
+        add_log(job_id, "Iniciando download...")
 
-        ts_file = DOWNLOAD_DIR / f"video_{job_id}.ts"
-        mp4_file = DOWNLOAD_DIR / f"video_{job_id}.mp4"
+        saida = DOWNLOAD_DIR / f"video_{job_id}.ts"
 
-        run_streamlink(job_id, url, quality, ts_file)
-
-        if fmt == "mp4":
-            convert_to_mp4(job_id, ts_file, mp4_file)
-            final_file = mp4_file
-            filename = f"video_{job_id}.mp4"
-        else:
-            final_file = ts_file
-            filename = f"video_{job_id}.ts"
+        rodar_comando_exato(job_id, url, qualidade, saida)
 
         set_job(
             job_id,
             status="done",
-            file=str(final_file),
-            filename=filename,
-            size=final_file.stat().st_size
+            file=str(saida),
+            filename=saida.name,
+            size=saida.stat().st_size
         )
+
         add_log(job_id, "Arquivo pronto.")
 
     except Exception as e:
@@ -151,44 +88,28 @@ def worker(job_id, url, quality, fmt):
 def index():
     return render_template("index.html")
 
-@app.route("/health")
-def health():
-    return jsonify({
-        "ok": True,
-        "ffmpeg": FFMPEG,
-        "downloads": str(DOWNLOAD_DIR)
-    })
-
 @app.route("/start", methods=["POST"])
 def start():
     data = request.get_json(force=True)
 
     url = (data.get("url") or "").strip()
-    quality = (data.get("quality") or "best").strip()
-    fmt = (data.get("format") or "ts").strip().lower()
+    qualidade = (data.get("quality") or "best").strip()
 
     if not url.startswith(("http://", "https://")):
         return jsonify({"ok": False, "error": "URL inválida."}), 400
 
-    if fmt not in ("ts", "mp4"):
-        return jsonify({"ok": False, "error": "Formato inválido."}), 400
+    if not qualidade:
+        qualidade = "best"
 
     job_id = uuid.uuid4().hex[:12]
     jobs[job_id] = {
         "status": "queued",
         "logs": [],
-        "url": url,
-        "quality": quality,
-        "format": fmt,
         "created": time.time()
     }
 
-    thread = threading.Thread(
-        target=worker,
-        args=(job_id, url, quality, fmt),
-        daemon=True
-    )
-    thread.start()
+    t = threading.Thread(target=worker, args=(job_id, url, qualidade), daemon=True)
+    t.start()
 
     return jsonify({"ok": True, "job_id": job_id})
 
@@ -218,11 +139,11 @@ def file(job_id):
     if not path.exists():
         abort(404)
 
-    return send_file(
-        path,
-        as_attachment=True,
-        download_name=job.get("filename") or path.name
-    )
+    return send_file(path, as_attachment=True, download_name=job.get("filename") or path.name)
+
+@app.route("/health")
+def health():
+    return jsonify({"ok": True})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
