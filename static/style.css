@@ -1,60 +1,122 @@
-body{
-background:#0f172a;
-font-family:Arial;
-display:flex;
-justify-content:center;
-align-items:center;
-height:100vh;
-margin:0;
-color:white;
+
+* {
+  box-sizing: border-box;
 }
 
-.container{
-background:#111827;
-padding:30px;
-border-radius:20px;
-width:700px;
-max-width:95%;
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #0f172a;
+  color: white;
+  font-family: Arial, Helvetica, sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
-h1{
-margin-top:0;
+.container {
+  background: #111827;
+  width: 760px;
+  max-width: 95%;
+  padding: 32px;
+  border-radius: 20px;
 }
 
-input,select{
-width:100%;
-padding:15px;
-border-radius:10px;
-border:none;
-margin-top:5px;
-background:#1e293b;
-color:white;
+h1 {
+  margin-top: 0;
+  font-size: 34px;
 }
 
-.grid{
-display:grid;
-grid-template-columns:1fr 1fr;
-gap:15px;
-margin-top:15px;
+.sub {
+  color: #cbd5e1;
+  font-size: 14px;
 }
 
-button{
-width:100%;
-padding:16px;
-margin-top:20px;
-border:none;
-border-radius:10px;
-background:#22c55e;
-font-size:20px;
-font-weight:bold;
-cursor:pointer;
+label {
+  display: block;
+  margin-top: 18px;
+  margin-bottom: 7px;
 }
 
-.error{
-background:#991b1b;
-padding:15px;
-margin-top:20px;
-border-radius:10px;
-white-space:pre-wrap;
-overflow:auto;
+input, select {
+  width: 100%;
+  padding: 15px;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  background: #1e293b;
+  color: white;
+  font-size: 16px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+
+button {
+  width: 100%;
+  padding: 16px;
+  margin-top: 22px;
+  border: 0;
+  border-radius: 10px;
+  background: #22c55e;
+  color: #06130b;
+  font-size: 20px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: .65;
+  cursor: wait;
+}
+
+.status {
+  margin-top: 18px;
+  padding: 14px;
+  background: #1e40af;
+  border-radius: 10px;
+}
+
+.status.ok {
+  background: #166534;
+}
+
+.status.error {
+  background: #991b1b;
+}
+
+.download {
+  display: block;
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 10px;
+  background: #2563eb;
+  color: white;
+  text-align: center;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.log {
+  margin-top: 16px;
+  padding: 14px;
+  background: #020617;
+  color: #d1d5db;
+  border-radius: 10px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+
+.hidden {
+  display: none;
+}
+
+@media(max-width:700px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
 }

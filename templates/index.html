@@ -1,5 +1,6 @@
+
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,48 +10,158 @@
 <body>
 
 <div class="container">
+  <h1>Streamlink Downloader</h1>
+  <p class="sub">Usa o comando: <b>streamlink --output arquivo.ts "URL" best</b></p>
 
-<h1>Streamlink Downloader</h1>
+  <label>URL</label>
+  <input id="url" type="text" placeholder="Cole a URL aqui">
 
-<form action="/download" method="POST">
+  <div class="grid">
+    <div>
+      <label>Formato</label>
+      <select id="format">
+        <option value="ts">TS</option>
+        <option value="mp4">MP4 H.264 AVC1</option>
+      </select>
+    </div>
 
-<label>URL</label>
-<input type="text" name="url" required placeholder="Cole a URL aqui">
+    <div>
+      <label>Qualidade</label>
+      <select id="quality">
+        <option value="best">best</option>
+        <option value="1080p">1080p</option>
+        <option value="720p">720p</option>
+        <option value="480p">480p</option>
+        <option value="360p">360p</option>
+      </select>
+    </div>
+  </div>
 
-<div class="grid">
+  <button id="btn" onclick="startDownload()">Baixar</button>
 
-<div>
-<label>Formato</label>
-<select name="format">
-<option value="ts">TS</option>
-<option value="mp4">MP4 H264 AVC1</option>
-</select>
+  <div id="status" class="status hidden"></div>
+
+  <a id="downloadLink" class="download hidden" href="#">Baixar arquivo pronto</a>
+
+  <pre id="log" class="log hidden"></pre>
 </div>
 
-<div>
-<label>Qualidade</label>
-<select name="quality">
-<option value="best">best</option>
-<option value="1080p">1080p</option>
-<option value="720p">720p</option>
-<option value="480p">480p</option>
-<option value="360p">360p</option>
-</select>
-</div>
+<script>
+let currentJob = null;
+let timer = null;
 
-</div>
+function show(el) {
+  el.classList.remove("hidden");
+}
 
-<button type="submit">Baixar</button>
+function hide(el) {
+  el.classList.add("hidden");
+}
 
-</form>
+async function startDownload() {
+  const url = document.getElementById("url").value.trim();
+  const format = document.getElementById("format").value;
+  const quality = document.getElementById("quality").value;
 
-{% if error %}
-<div class="error">
-<pre>{{ error }}</pre>
-</div>
-{% endif %}
+  const btn = document.getElementById("btn");
+  const status = document.getElementById("status");
+  const log = document.getElementById("log");
+  const link = document.getElementById("downloadLink");
 
-</div>
+  hide(link);
+  show(status);
+  show(log);
+  status.className = "status";
+  status.innerText = "Iniciando...";
+  log.innerText = "";
+
+  if (!url) {
+    status.className = "status error";
+    status.innerText = "Cole uma URL primeiro.";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerText = "Processando...";
+
+  try {
+    const r = await fetch("/start", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({url, format, quality})
+    });
+
+    const data = await r.json();
+
+    if (!data.ok) {
+      throw new Error(data.error || "Falha ao iniciar.");
+    }
+
+    currentJob = data.job_id;
+    status.innerText = "Baixando no servidor... aguarde.";
+    timer = setInterval(checkStatus, 2000);
+    checkStatus();
+
+  } catch (e) {
+    status.className = "status error";
+    status.innerText = e.message;
+    btn.disabled = false;
+    btn.innerText = "Baixar";
+  }
+}
+
+async function checkStatus() {
+  if (!currentJob) return;
+
+  const btn = document.getElementById("btn");
+  const status = document.getElementById("status");
+  const log = document.getElementById("log");
+  const link = document.getElementById("downloadLink");
+
+  try {
+    const r = await fetch("/status/" + currentJob);
+    const data = await r.json();
+
+    if (!data.ok) {
+      throw new Error(data.error || "Falha ao consultar status.");
+    }
+
+    log.innerText = (data.logs || []).join("\n");
+    log.scrollTop = log.scrollHeight;
+
+    if (data.status === "running" || data.status === "queued") {
+      status.className = "status";
+      status.innerText = "Baixando no servidor... não feche esta página.";
+    }
+
+    if (data.status === "done") {
+      clearInterval(timer);
+      status.className = "status ok";
+      status.innerText = "Arquivo pronto.";
+      link.href = data.download_url;
+      link.innerText = "Baixar " + (data.filename || "arquivo");
+      show(link);
+      btn.disabled = false;
+      btn.innerText = "Baixar outro";
+    }
+
+    if (data.status === "error") {
+      clearInterval(timer);
+      status.className = "status error";
+      status.innerText = data.error || "Erro.";
+      btn.disabled = false;
+      btn.innerText = "Baixar";
+    }
+
+  } catch (e) {
+    clearInterval(timer);
+    status.className = "status error";
+    status.innerText = e.message;
+    btn.disabled = false;
+    btn.innerText = "Baixar";
+  }
+}
+</script>
 
 </body>
 </html>
