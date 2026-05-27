@@ -1,60 +1,56 @@
-
-<!doctype html>
-<html lang="pt-BR">
+<!DOCTYPE html>
+<html lang="pt-br">
 <head>
-  <meta charset="utf-8">
-  <title>Streamlink Downloader</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Streamlink Downloader</title>
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <main class="card">
-    <h1>Streamlink Downloader</h1>
-    <p>Baixe vídeos/streams por URL em <b>.TS</b> ou <b>.MP4 H.264 AVC1</b>.</p>
 
-    <form method="post" action="/download" onsubmit="baixando()">
-      <label>URL do vídeo/stream</label>
-      <input name="url" required placeholder="https://..." value="{{ last_url or '' }}">
+<div class="container">
 
-      <div class="grid">
-        <div>
-          <label>Formato</label>
-          <select name="format">
-            <option value="mp4">MP4 - H.264 / AVC1</option>
-            <option value="ts">TS - MPEG-TS</option>
-          </select>
-        </div>
-        <div>
-          <label>Qualidade</label>
-          <select name="quality">
-            <option value="best">best</option>
-            <option value="1080p">1080p</option>
-            <option value="720p">720p</option>
-            <option value="480p">480p</option>
-            <option value="360p">360p</option>
-            <option value="worst">worst</option>
-          </select>
-        </div>
-      </div>
+<h1>Streamlink Downloader</h1>
 
-      <button id="btn" type="submit">Baixar</button>
-    </form>
+<form action="/download" method="POST">
 
-    {% if error %}
-      <pre class="error">{{ error }}</pre>
-    {% endif %}
+<label>URL</label>
+<input type="text" name="url" required placeholder="Cole a URL aqui">
 
-    <p class="obs">
-      Se uma URL tiver DRM, bloqueio de região, login obrigatório ou vídeo expirado, nenhum site consegue baixar sem autorização.
-    </p>
-  </main>
+<div class="grid">
 
-<script>
-function baixando(){
-  const btn = document.getElementById("btn");
-  btn.disabled = true;
-  btn.innerText = "Baixando... aguarde";
-}
-</script>
+<div>
+<label>Formato</label>
+<select name="format">
+<option value="ts">TS</option>
+<option value="mp4">MP4 H264 AVC1</option>
+</select>
+</div>
+
+<div>
+<label>Qualidade</label>
+<select name="quality">
+<option value="best">best</option>
+<option value="1080p">1080p</option>
+<option value="720p">720p</option>
+<option value="480p">480p</option>
+<option value="360p">360p</option>
+</select>
+</div>
+
+</div>
+
+<button type="submit">Baixar</button>
+
+</form>
+
+{% if error %}
+<div class="error">
+<pre>{{ error }}</pre>
+</div>
+{% endif %}
+
+</div>
+
 </body>
 </html>

@@ -1,76 +1,60 @@
-
-*{box-sizing:border-box}
 body{
-  margin:0;
-  min-height:100vh;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-family:Arial, Helvetica, sans-serif;
-  background:linear-gradient(135deg,#0f172a,#1e293b);
-  color:#f8fafc;
+background:#0f172a;
+font-family:Arial;
+display:flex;
+justify-content:center;
+align-items:center;
+height:100vh;
+margin:0;
+color:white;
 }
-.card{
-  width:min(760px,94vw);
-  background:#0b1020;
-  padding:34px;
-  border-radius:24px;
-  box-shadow:0 25px 80px rgba(0,0,0,.35);
+
+.container{
+background:#111827;
+padding:30px;
+border-radius:20px;
+width:700px;
+max-width:95%;
 }
-h1{margin:0 0 14px;font-size:36px}
-p{color:#cbd5e1}
-label{
-  display:block;
-  margin:18px 0 8px;
-  font-weight:700;
+
+h1{
+margin-top:0;
 }
+
 input,select{
-  width:100%;
-  padding:15px 16px;
-  background:#020617;
-  border:1px solid #334155;
-  border-radius:12px;
-  color:#fff;
-  font-size:16px;
+width:100%;
+padding:15px;
+border-radius:10px;
+border:none;
+margin-top:5px;
+background:#1e293b;
+color:white;
 }
+
 .grid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:16px;
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:15px;
+margin-top:15px;
 }
+
 button{
-  width:100%;
-  margin-top:24px;
-  padding:16px;
-  border:0;
-  border-radius:14px;
-  background:#22c55e;
-  color:#03130a;
-  font-size:18px;
-  font-weight:800;
-  cursor:pointer;
+width:100%;
+padding:16px;
+margin-top:20px;
+border:none;
+border-radius:10px;
+background:#22c55e;
+font-size:20px;
+font-weight:bold;
+cursor:pointer;
 }
-button:disabled{
-  opacity:.7;
-  cursor:wait;
-}
+
 .error{
-  margin-top:18px;
-  padding:16px;
-  background:#991b1b;
-  color:white;
-  border-radius:12px;
-  white-space:pre-wrap;
-  overflow:auto;
-  max-height:260px;
-}
-.obs{
-  font-size:13px;
-  color:#94a3b8;
-  margin-top:18px;
-}
-@media(max-width:700px){
-  .grid{grid-template-columns:1fr}
-  .card{padding:22px}
-  h1{font-size:29px}
+background:#991b1b;
+padding:15px;
+margin-top:20px;
+border-radius:10px;
+white-space:pre-wrap;
+overflow:auto;
 }
