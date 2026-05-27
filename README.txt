@@ -1,7 +1,10 @@
-VERSÃO COM COMANDO EXATO
+VERSÃO CORRIGIDA
 
-Executa exatamente:
-streamlink --output "nome do video.ts" "url" best
+Agora o comando no log fica sem /opt/render:
+
+streamlink --output "nomedo video XXXXX.ts" "URL" best
+
+O comando é executado dentro da pasta downloads usando cwd.
 
 Render:
 Build Command:

@@ -2,7 +2,6 @@
 import os
 import uuid
 import time
-import shlex
 import threading
 import subprocess
 from pathlib import Path
@@ -28,54 +27,53 @@ def add_log(job_id, text):
     logs.append(str(text)[-4000:])
     jobs[job_id]["logs"] = logs[-120:]
 
-def rodar_comando_exato(job_id, url, qualidade, saida):
-    # Monta o comando EXATAMENTE igual ao CMD:
-    # streamlink --output "nome do video.ts" "url" best
-    comando = f'streamlink --output "{saida}" "{url}" {qualidade}'
-
-    add_log(job_id, "Comando executado exatamente:")
-    add_log(job_id, comando)
-
-    p = subprocess.Popen(
-        comando,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1
-    )
-
-    for linha in p.stdout:
-        add_log(job_id, linha.rstrip())
-
-    p.wait()
-
-    add_log(job_id, f"Código final: {p.returncode}")
-
-    if p.returncode != 0:
-        raise RuntimeError("Streamlink falhou. Veja o log.")
-
-    if not saida.exists():
-        raise RuntimeError("O arquivo .ts não foi criado.")
-
-    if saida.stat().st_size < 1024:
-        raise RuntimeError("O arquivo .ts ficou vazio ou pequeno demais.")
-
 def worker(job_id, url, qualidade):
     try:
         set_job(job_id, status="running", error=None)
         add_log(job_id, "Iniciando download...")
 
-        saida = DOWNLOAD_DIR / f"video_{job_id}.ts"
+        # Nome RELATIVO, igual ao CMD:
+        nome_arquivo = f"nomedo video {job_id}.ts"
 
-        rodar_comando_exato(job_id, url, qualidade, saida)
+        # Executa dentro da pasta downloads, então NÃO aparece /opt/render/... no comando.
+        comando = f'streamlink --output "{nome_arquivo}" "{url}" {qualidade}'
+
+        add_log(job_id, "Comando executado:")
+        add_log(job_id, comando)
+
+        p = subprocess.Popen(
+            comando,
+            shell=True,
+            cwd=str(DOWNLOAD_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+
+        for linha in p.stdout:
+            add_log(job_id, linha.rstrip())
+
+        p.wait()
+        add_log(job_id, f"Código final: {p.returncode}")
+
+        arquivo_final = DOWNLOAD_DIR / nome_arquivo
+
+        if p.returncode != 0:
+            raise RuntimeError("Streamlink falhou. Veja o log.")
+
+        if not arquivo_final.exists():
+            raise RuntimeError("O arquivo .ts não foi criado.")
+
+        if arquivo_final.stat().st_size < 1024:
+            raise RuntimeError("O arquivo .ts ficou vazio ou pequeno demais.")
 
         set_job(
             job_id,
             status="done",
-            file=str(saida),
-            filename=saida.name,
-            size=saida.stat().st_size
+            file=str(arquivo_final),
+            filename=nome_arquivo,
+            size=arquivo_final.stat().st_size
         )
 
         add_log(job_id, "Arquivo pronto.")
@@ -91,7 +89,6 @@ def index():
 @app.route("/start", methods=["POST"])
 def start():
     data = request.get_json(force=True)
-
     url = (data.get("url") or "").strip()
     qualidade = (data.get("quality") or "best").strip()
 
@@ -101,7 +98,7 @@ def start():
     if not qualidade:
         qualidade = "best"
 
-    job_id = uuid.uuid4().hex[:12]
+    job_id = uuid.uuid4().hex[:8]
     jobs[job_id] = {
         "status": "queued",
         "logs": [],
