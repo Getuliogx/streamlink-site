@@ -1,153 +1,282 @@
-import os, re, uuid, subprocess, sys, time
+
+import os
+import re
+import json
+import time
+import uuid
+import shutil
+import logging
+import tempfile
+import subprocess
 from pathlib import Path
-from urllib.parse import urlparse, urlencode
+from urllib.parse import urlparse
 
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, send_file, jsonify, after_this_request
 import imageio_ffmpeg
-from streamlink import Streamlink
-
-BASE_DIR = Path(__file__).resolve().parent
-DOWNLOAD_DIR = BASE_DIR / 'static' / 'downloads'
-DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+import requests
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024
 
-QUALITY_ORDER = ['best', '1080p', '720p', '480p', '360p', 'worst']
-UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("streamlink-site")
 
-def log(msg):
-    print(f'[streamlink-site] {msg}', flush=True)
+BASE_DIR = Path(__file__).resolve().parent
+TMP_DIR = Path(tempfile.gettempdir()) / "streamlink_site_downloads"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
 
-def safe_name(text: str) -> str:
-    return (re.sub(r'[^a-zA-Z0-9._-]+', '_', text).strip('_')[:80] or 'video')
+FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
-def guess_name(url: str) -> str:
-    host = urlparse(url).netloc.replace('www.', '')
-    return safe_name(host or 'video')
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0 Safari/537.36"
+)
 
-def pluto_episode_m3u8(page_url: str):
-    """Tenta transformar URL Pluto on-demand /episode/<id> em playlist HLS.
-    Não quebra DRM: se o conteúdo exigir DRM, o FFmpeg vai falhar e avisar.
-    """
-    if 'pluto.tv' not in page_url:
-        return None
-    m = re.search(r'/episode/([a-zA-Z0-9_-]+)', page_url)
-    if not m:
-        return None
-    episode_id = m.group(1)
-    params = {
-        'advertisingId': '',
-        'appName': 'web',
-        'appStoreUrl': '',
-        'appVersion': '5.0.0',
-        'architecture': '',
-        'buildVersion': '',
-        'deviceDNT': '0',
-        'deviceId': str(uuid.uuid4()),
-        'deviceLat': '-23.5505',
-        'deviceLon': '-46.6333',
-        'deviceMake': 'Chrome',
-        'deviceModel': 'Chrome',
-        'deviceType': 'web',
-        'deviceVersion': '124.0.0.0',
-        'includeExtendedEvents': 'false',
-        'marketingRegion': 'BR',
-        'sid': str(uuid.uuid4()),
-        'userId': '',
-        'serverSideAds': 'true',
-    }
-    return f'https://service-stitcher.clusters.pluto.tv/stitch/hls/episode/{episode_id}/master.m3u8?' + urlencode(params)
 
-def get_stream_url(page_url: str, quality: str = 'best') -> str:
-    # URL HLS direta
-    if '.m3u8' in page_url:
-        return page_url
+def safe_name(name: str, ext: str) -> str:
+    name = re.sub(r"[^a-zA-Z0-9._-]+", "_", name or "video").strip("_")
+    if not name:
+        name = "video"
+    if not name.lower().endswith("." + ext):
+        name += "." + ext
+    return name[:120]
 
-    # Pluto on-demand: Streamlink nem sempre detecta a página, então monta o HLS do episódio
-    pluto = pluto_episode_m3u8(page_url)
-    if pluto:
-        log('Pluto on-demand detectado; usando playlist HLS do episódio.')
-        return pluto
 
-    session = Streamlink()
-    session.set_option('http-timeout', 30)
-    session.set_option('http-headers', {'User-Agent': UA, 'Referer': page_url})
-    log(f'Procurando streams com Streamlink: {page_url}')
-    streams = session.streams(page_url)
-    log('Qualidades encontradas: ' + ', '.join(streams.keys()) if streams else 'Nenhuma qualidade encontrada')
-    if not streams:
-        raise RuntimeError('Nenhum stream encontrado nessa URL. Tente colar uma URL .m3u8 direta ou uma URL suportada pelo Streamlink.')
+def run_cmd(cmd, timeout=60):
+    log.info("CMD: %s", " ".join(map(str, cmd)))
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
+    log.info("RET=%s", p.returncode)
+    if p.stdout:
+        log.info("STDOUT: %s", p.stdout[-4000:])
+    if p.stderr:
+        log.info("STDERR: %s", p.stderr[-4000:])
+    return p
 
-    selected = streams.get(quality)
-    if not selected:
-        for q in QUALITY_ORDER:
-            selected = streams.get(q)
-            if selected:
-                break
-    if not selected:
-        selected = next(iter(streams.values()))
-    return selected.to_url()
 
-def run_ffmpeg(stream_url: str, out_file: Path, formato: str, referer: str):
-    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-    headers = f'User-Agent: {UA}\r\nReferer: {referer}\r\n'
-    cmd = [ffmpeg, '-y', '-hide_banner', '-loglevel', 'error', '-headers', headers, '-i', stream_url]
-    if formato == 'ts':
-        cmd += ['-c', 'copy', '-f', 'mpegts', str(out_file)]
-    else:
-        cmd += [
-            '-map', '0:v:0?', '-map', '0:a:0?',
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
-            '-pix_fmt', 'yuv420p', '-tag:v', 'avc1',
-            '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', str(out_file)
-        ]
-    log('Rodando FFmpeg...')
-    proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=900)
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr[-3000:] or 'FFmpeg falhou sem detalhes.')
-    if not out_file.exists() or out_file.stat().st_size < 1024:
-        raise RuntimeError('Arquivo saiu vazio. A URL pode estar protegida por DRM, bloqueada por região ou sem permissão.')
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/baixar', methods=['POST'])
-def baixar():
-    data = request.get_json(force=True)
-    url = (data.get('url') or '').strip()
-    formato = (data.get('formato') or 'mp4').lower()
-    qualidade = (data.get('qualidade') or 'best').strip()
-    if not url.startswith(('http://', 'https://')):
-        return jsonify(ok=False, erro='Informe uma URL válida começando com http:// ou https://'), 400
-    if formato not in {'ts', 'mp4'}:
-        return jsonify(ok=False, erro='Formato inválido.'), 400
-    filename = f"{guess_name(url)}_{uuid.uuid4().hex[:10]}.{formato}"
-    out_file = DOWNLOAD_DIR / filename
+def streamlink_json(url):
+    cmd = [
+        "python", "-m", "streamlink",
+        "--json",
+        "--http-header", f"User-Agent={USER_AGENT}",
+        url,
+    ]
+    p = run_cmd(cmd, timeout=90)
+    if p.returncode != 0:
+        return None, p.stderr or p.stdout
     try:
-        log(f'Requisição: formato={formato} qualidade={qualidade} url={url}')
-        stream_url = get_stream_url(url, qualidade)
-        log(f'Playlist/stream obtido: {stream_url[:180]}')
-        run_ffmpeg(stream_url, out_file, formato, url)
-        size_mb = round(out_file.stat().st_size / 1024 / 1024, 2)
-        log(f'Arquivo pronto: {filename} ({size_mb} MB)')
-        return jsonify(ok=True, arquivo=filename, download=f'/download/{filename}', mensagem=f'Arquivo gerado com sucesso ({size_mb} MB).')
-    except subprocess.TimeoutExpired:
-        log('ERRO: timeout')
-        return jsonify(ok=False, erro='Tempo limite estourou. O Render Free pode não aguentar vídeos longos.'), 500
+        return json.loads(p.stdout), None
     except Exception as e:
-        log('ERRO: ' + str(e))
-        return jsonify(ok=False, erro=str(e)), 500
+        return None, f"Streamlink JSON inválido: {e}; saída={p.stdout[:1000]}"
 
-@app.route('/download/<path:filename>')
-def download(filename):
-    return send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True)
 
-@app.route('/health')
+def choose_stream(data, quality):
+    streams = data.get("streams", {}) if data else {}
+    if not streams:
+        return None
+    if quality in streams:
+        return quality
+    if quality == "best":
+        for q in ["best", "1080p", "720p", "480p", "360p", "worst"]:
+            if q in streams:
+                return q
+    if "best" in streams:
+        return "best"
+    return next(iter(streams.keys()))
+
+
+def download_with_streamlink(url, quality, out_file):
+    data, err = streamlink_json(url)
+    selected = choose_stream(data, quality)
+    if not selected:
+        return False, err or "Streamlink não encontrou stream nessa URL."
+
+    cmd = [
+        "python", "-m", "streamlink",
+        "--force",
+        "--http-header", f"User-Agent={USER_AGENT}",
+        "-o", str(out_file),
+        url,
+        selected,
+    ]
+    p = run_cmd(cmd, timeout=1800)
+    if p.returncode != 0 or not out_file.exists() or out_file.stat().st_size < 1024:
+        return False, p.stderr or p.stdout or "Streamlink falhou sem detalhes."
+    return True, None
+
+
+def get_direct_url_with_ytdlp(url, quality):
+    # Fallback útil para páginas on-demand que Streamlink não entende bem.
+    fmt = "best"
+    if quality and quality not in ("best", "worst"):
+        h = re.sub(r"[^0-9]", "", quality)
+        if h:
+            fmt = f"best[height<={h}]/best"
+    elif quality == "worst":
+        fmt = "worst"
+
+    cmd = [
+        "python", "-m", "yt_dlp",
+        "--no-playlist",
+        "--user-agent", USER_AGENT,
+        "-f", fmt,
+        "-g",
+        url,
+    ]
+    p = run_cmd(cmd, timeout=120)
+    if p.returncode != 0:
+        return None, p.stderr or p.stdout or "yt-dlp não conseguiu resolver a URL."
+    lines = [x.strip() for x in p.stdout.splitlines() if x.strip().startswith(("http://", "https://"))]
+    if not lines:
+        return None, "yt-dlp não retornou link direto."
+    return lines[0], None
+
+
+def ffmpeg_copy_to_ts(input_url_or_file, out_file):
+    cmd = [
+        FFMPEG, "-y",
+        "-headers", f"User-Agent: {USER_AGENT}\r\n",
+        "-i", str(input_url_or_file),
+        "-c", "copy",
+        "-f", "mpegts",
+        str(out_file),
+    ]
+    p = run_cmd(cmd, timeout=1800)
+    if p.returncode != 0 or not out_file.exists() or out_file.stat().st_size < 1024:
+        return False, p.stderr or p.stdout or "FFmpeg TS falhou."
+    return True, None
+
+
+def ffmpeg_to_mp4_h264(input_url_or_file, out_file):
+    # Gera MP4 compatível H.264/AVC1 + AAC.
+    cmd = [
+        FFMPEG, "-y",
+        "-headers", f"User-Agent: {USER_AGENT}\r\n",
+        "-i", str(input_url_or_file),
+        "-map", "0:v:0?", "-map", "0:a:0?",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-tag:v", "avc1",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-movflags", "+faststart",
+        str(out_file),
+    ]
+    p = run_cmd(cmd, timeout=1800)
+    if p.returncode != 0 or not out_file.exists() or out_file.stat().st_size < 1024:
+        return False, p.stderr or p.stdout or "FFmpeg MP4 falhou."
+    return True, None
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/health")
 def health():
-    return 'ok'
+    return jsonify({
+        "ok": True,
+        "ffmpeg": FFMPEG,
+        "tmp": str(TMP_DIR),
+    })
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+
+@app.route("/download", methods=["POST"])
+def download():
+    url = (request.form.get("url") or "").strip()
+    fmt = (request.form.get("format") or "mp4").strip().lower()
+    quality = (request.form.get("quality") or "best").strip()
+
+    log.info("NOVO DOWNLOAD url=%s format=%s quality=%s", url, fmt, quality)
+
+    if not url.startswith(("http://", "https://")):
+        return render_template("index.html", error="URL inválida.", last_url=url)
+
+    if fmt not in ("mp4", "ts"):
+        return render_template("index.html", error="Formato inválido.", last_url=url)
+
+    job = uuid.uuid4().hex
+    work = TMP_DIR / job
+    work.mkdir(parents=True, exist_ok=True)
+
+    parsed = urlparse(url)
+    host = parsed.netloc.replace("www.", "")
+    final_name = safe_name(host + "_" + job[:8], fmt)
+    out_file = work / final_name
+
+    errors = []
+
+    try:
+        # 1) Tenta Streamlink para TS bruto
+        if fmt == "ts":
+            ok, err = download_with_streamlink(url, quality, out_file)
+            if not ok:
+                errors.append("Streamlink: " + str(err)[-1200:])
+                direct, derr = get_direct_url_with_ytdlp(url, quality)
+                if not direct:
+                    errors.append("yt-dlp: " + str(derr)[-1200:])
+                    raise RuntimeError("\n\n".join(errors))
+                ok, err = ffmpeg_copy_to_ts(direct, out_file)
+                if not ok:
+                    errors.append("FFmpeg TS: " + str(err)[-1200:])
+                    raise RuntimeError("\n\n".join(errors))
+
+        # 2) MP4 H264 AVC1: tenta resolver por yt-dlp primeiro; se falhar usa Streamlink TS temporário
+        else:
+            direct, derr = get_direct_url_with_ytdlp(url, quality)
+            if direct:
+                ok, err = ffmpeg_to_mp4_h264(direct, out_file)
+                if not ok:
+                    errors.append("FFmpeg direto: " + str(err)[-1200:])
+                    # fallback
+                    tmp_ts = work / "input.ts"
+                    ok2, err2 = download_with_streamlink(url, quality, tmp_ts)
+                    if not ok2:
+                        errors.append("Streamlink fallback: " + str(err2)[-1200:])
+                        raise RuntimeError("\n\n".join(errors))
+                    ok3, err3 = ffmpeg_to_mp4_h264(tmp_ts, out_file)
+                    if not ok3:
+                        errors.append("FFmpeg fallback: " + str(err3)[-1200:])
+                        raise RuntimeError("\n\n".join(errors))
+            else:
+                errors.append("yt-dlp: " + str(derr)[-1200:])
+                tmp_ts = work / "input.ts"
+                ok, err = download_with_streamlink(url, quality, tmp_ts)
+                if not ok:
+                    errors.append("Streamlink: " + str(err)[-1200:])
+                    raise RuntimeError("\n\n".join(errors))
+                ok, err = ffmpeg_to_mp4_h264(tmp_ts, out_file)
+                if not ok:
+                    errors.append("FFmpeg: " + str(err)[-1200:])
+                    raise RuntimeError("\n\n".join(errors))
+
+        log.info("ARQUIVO OK: %s size=%s", out_file, out_file.stat().st_size)
+
+        @after_this_request
+        def cleanup(response):
+            try:
+                shutil.rmtree(work, ignore_errors=True)
+            except Exception:
+                pass
+            return response
+
+        return send_file(out_file, as_attachment=True, download_name=final_name)
+
+    except subprocess.TimeoutExpired:
+        log.exception("Timeout")
+        shutil.rmtree(work, ignore_errors=True)
+        return render_template("index.html", error="Demorou demais e o Render cortou o processo. Tente qualidade menor ou TS.", last_url=url)
+    except Exception as e:
+        log.exception("Falha no download")
+        shutil.rmtree(work, ignore_errors=True)
+        msg = str(e)
+        if len(msg) > 1800:
+            msg = msg[-1800:]
+        return render_template("index.html", error=msg, last_url=url)
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(host="0.0.0.0", port=port)
