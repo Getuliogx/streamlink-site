@@ -10,63 +10,33 @@
   <main class="card">
     <h1>Streamlink Downloader</h1>
     <p>Baixe vídeos/streams por URL em <b>.TS</b> ou <b>.MP4 H.264 AVC1</b>.</p>
-
     <label>URL do vídeo/stream</label>
-    <input id="url" placeholder="https://...">
-
+    <input id="url" placeholder="Cole a URL ou .m3u8 aqui">
     <div class="grid">
-      <div>
-        <label>Formato</label>
-        <select id="formato">
-          <option value="mp4">MP4 - H.264 / AVC1</option>
-          <option value="ts">TS</option>
-        </select>
-      </div>
-      <div>
-        <label>Qualidade</label>
-        <select id="qualidade">
-          <option value="best">Melhor</option>
-          <option value="720p">720p</option>
-          <option value="480p">480p</option>
-          <option value="360p">360p</option>
-          <option value="worst">Pior</option>
-        </select>
-      </div>
+      <div><label>Formato</label><select id="formato"><option value="mp4">MP4 - H.264 / AVC1</option><option value="ts">TS original</option></select></div>
+      <div><label>Qualidade</label><select id="qualidade"><option>best</option><option>1080p</option><option>720p</option><option>480p</option><option>360p</option><option>worst</option></select></div>
     </div>
-
     <button id="btn">Baixar</button>
     <div id="status"></div>
+    <small>Obs: se o vídeo tiver DRM, bloqueio de região ou URL expirada, o servidor não consegue baixar.</small>
   </main>
-
 <script>
 const btn = document.getElementById('btn');
 const statusBox = document.getElementById('status');
-
 btn.onclick = async () => {
-  const url = document.getElementById('url').value.trim();
-  const formato = document.getElementById('formato').value;
-  const qualidade = document.getElementById('qualidade').value;
-
   statusBox.className = 'info';
-  statusBox.textContent = 'Processando no servidor Render...';
+  statusBox.textContent = 'Processando no servidor... pode demorar.';
   btn.disabled = true;
-
   try {
-    const res = await fetch('/baixar', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url, formato, qualidade})
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.erro + (data.detalhes ? '\n' + data.detalhes : ''));
+    const r = await fetch('/baixar', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url:document.getElementById('url').value, formato:document.getElementById('formato').value, qualidade:document.getElementById('qualidade').value})});
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.erro || 'Erro desconhecido');
     statusBox.className = 'ok';
-    statusBox.innerHTML = `Pronto: <a href="${data.download}">baixar arquivo</a>`;
-  } catch (err) {
+    statusBox.innerHTML = `${j.mensagem}<br><a href="${j.download}">Clique aqui para baixar: ${j.arquivo}</a>`;
+  } catch(e) {
     statusBox.className = 'erro';
-    statusBox.textContent = err.message;
-  } finally {
-    btn.disabled = false;
-  }
+    statusBox.textContent = e.message;
+  } finally { btn.disabled = false; }
 };
 </script>
 </body>

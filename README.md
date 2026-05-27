@@ -1,20 +1,22 @@
-# Streamlink Downloader para Render + GitHub
+# Streamlink Downloader - Render + GitHub
 
-Site Flask para baixar vídeos/streams usando Streamlink e salvar como `.ts` ou `.mp4`.
+Use como **Web Service** no Render.
 
-## Importante
-Use apenas com URLs que você tem direito de baixar. O armazenamento do Render Free é temporário: arquivos podem sumir quando o serviço reiniciar.
+Build Command:
+```bash
+pip install -r requirements.txt
+```
 
-## Como subir no GitHub
+Start Command:
+```bash
+gunicorn app:app --bind 0.0.0.0:$PORT --timeout 900 --workers 1 --log-level info --access-logfile - --error-logfile -
+```
 
-1. Crie um repositório no GitHub.
-2. Envie todos estes arquivos para o repositório.
-3. No Render, clique em **New +** > **Web Service**.
-4. Conecte seu GitHub e escolha o repositório.
-5. Use:
-   - Runtime: Python
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `gunicorn app:app --bind 0.0.0.0:$PORT --timeout 600`
-6. Clique em Deploy.
+Correções desta versão:
+- logs aparecem no Render;
+- aceita URL `.m3u8` direta;
+- fallback para Pluto TV on-demand `/episode/<id>`;
+- MP4 sai com H.264 e tag AVC1;
+- mostra erro real do FFmpeg na tela.
 
-O arquivo `render.yaml` também permite deploy por Blueprint.
+Use apenas com vídeos/streams que você tem direito de baixar.

@@ -1,10 +1,7 @@
 services:
   - type: web
-    name: streamlink-downloader
-    runtime: python
+    name: streamlink-site
+    env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 600
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 900 --workers 1 --log-level info --access-logfile - --error-logfile -
